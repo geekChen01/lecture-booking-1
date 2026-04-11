@@ -1,0 +1,10 @@
+auth/
+log/
+cache/
+.trae/
+__pycache__/
+.idea/
+*.pyc
+*.pyo
+*.log
+.env
