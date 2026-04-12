@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 import urllib3
 
-from config import (
+from config1 import (
     FETCH_DELAY, BOOK_DELAY, LIST_CACHE_TTL, MAX_PAGES,
     REQUEST_TIMEOUT, MAX_RETRIES, RETRY_DELAY,
     CONCURRENT_SIGNUP_THREADS, API_BASE, AUTO_REFRESH,

@@ -23,7 +23,7 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-from config import (
+from config1 import (
     CACHE_DIR, AUTH_DIR, DEBUG_MODE,
     DRY_RUN, MULTI_ACCOUNT_MODE, FILTER_NANJING, TARGET_ACCOUNTS,
     CONCURRENT_ACCOUNTS, ACCOUNT_DELAY_RANGE,

@@ -9,7 +9,7 @@ from typing import Dict
 
 import requests
 
-from config import CACHE_EXPIRE_HOURS, AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT
+from config1 import CACHE_EXPIRE_HOURS, AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT
 
 logger = logging.getLogger(__name__)
 

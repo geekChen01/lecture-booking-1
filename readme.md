@@ -158,7 +158,7 @@ DRY_RUN=False  MULTI_ACCOUNT=True  DEBUG=True
 #### 常用配置（按需修改）
 
 ```python
-# config.py - ## CHANGE HERE
+# config1.py - ## CHANGE HERE
 
 TARGET_ACCOUNTS = ["2212345"]  # 指定账号；[] = 运行所有
 FILTER_NANJING = True         # True = 屏蔽南京讲座
@@ -174,14 +174,14 @@ DRY_RUN = True                # True = 模拟运行（不实际报名）
 #### 调试模式
 
 ```python
-# config.py
+# config1.py
 DEBUG_MODE = True  # 输出详细调试日志
 ```
 
 #### 自定义并发数
 
 ```python
-# config.py
+# config1.py
 CONCURRENT_SIGNUP_THREADS = 5  # 并发抢票线程数
 CONCURRENT_ACCOUNTS = 3        # 并发账号数
 ```

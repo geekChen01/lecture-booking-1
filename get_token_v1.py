@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 
 import requests
 
-from config import (
+from config1 import (
     BASE_DIR, LOG_DIR, CACHE_DIR, AUTH_DIR,
     SUMMARY_FILE,
     MITMDUMP_PATH, PROXY_ADDR, PROXY_PORT,
