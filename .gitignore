@@ -3,3 +3,9 @@ log/
 .trae/
 cache/
 !cache/README.md
+__pycache__/
+/.idea/
+*.pyc
+*.pyo
+*.log
+.env
