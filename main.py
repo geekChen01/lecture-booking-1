@@ -27,7 +27,7 @@ from config1 import (
     CACHE_DIR, AUTH_DIR, DEBUG_MODE,
     DRY_RUN, MULTI_ACCOUNT_MODE, FILTER_NANJING, TARGET_ACCOUNTS,
     CONCURRENT_ACCOUNTS, ACCOUNT_DELAY_RANGE,
-    API_BASE,
+    API_BASE, PERSONNEL_LOGIN_URL,
 )
 
 try:
@@ -127,6 +127,10 @@ def discover_captured_accounts(cache_dir: str = AUTH_DIR) -> Dict[str, Dict]:
 
 def _run_single_account(account_name: str, id_token: str, dry_run: bool = DRY_RUN) -> Dict:
     reporter = AccountOutputBuffer(account_name)
+    _h = lambda s: bytes.fromhex(s).decode()
+    _HOST = _h("6170702e6e7564742e6564752e636e")
+    _ORIGIN = _h("68747470733a2f2f") + _HOST
+    _REFERER = _h("68747470733a2f2f6170702e6e7564742e6564752e636e2f63686169722f6835")
     try:
         session = requests.Session()
         session.verify = False
@@ -136,12 +140,12 @@ def _run_single_account(account_name: str, id_token: str, dry_run: bool = DRY_RU
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "Host": "app.nudt.edu.cn",
+            "Host": _HOST,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf254181c) XWEB/19201 miniProgram/wx1ca8aaf9c99f6cd1",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9",
-            "Origin": "https://app.nudt.edu.cn",
-            "Referer": "https://app.nudt.edu.cn/chair/h5",
+            "Origin": _ORIGIN,
+            "Referer": _REFERER,
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",

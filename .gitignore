@@ -1,10 +1,5 @@
 auth/
 log/
-cache/
 .trae/
-__pycache__/
-.idea/
-*.pyc
-*.pyo
-*.log
-.env
+cache/
+!cache/README.md
