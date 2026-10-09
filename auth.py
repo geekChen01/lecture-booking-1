@@ -4,12 +4,12 @@ import logging
 import os
 import time
 import winreg
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict
 
 import requests
 
-from config1 import CACHE_EXPIRE_HOURS, AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT
+from config import AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +26,32 @@ class TokenManager:
         try:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 cache = json.load(f)
-            if cache.get("expire_at") and datetime.fromisoformat(cache["expire_at"]) > datetime.now():
-                return cache
+            return cache
         except Exception:
             pass
         return {}
 
     def save(self, chair_token: str, id_token: str = ""):
+        # 保留旧缓存中的额外字段（userId, raw_response 等）
+        old_cache = {}
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    old_cache = json.load(f)
+            except Exception:
+                pass
+
         cache = {
             "chair_token": chair_token,
             "id_token": id_token,
             "loginAccount": self.account_name,
-            "expire_at": (datetime.now() + timedelta(hours=CACHE_EXPIRE_HOURS)).isoformat()
+            "captured_at": datetime.now().isoformat(),
         }
+        # 保留旧缓存中的扩展字段
+        for key in ("userId", "raw_response"):
+            if key in old_cache:
+                cache[key] = old_cache[key]
+
         with open(self.cache_file, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
 
@@ -95,19 +108,6 @@ class TokenManager:
 
         logger.error(f"[{self.account_name}] 认证失败：无有效 Token")
         return False
-
-    def is_expired(self) -> bool:
-        if not os.path.exists(self.cache_file):
-            return True
-        try:
-            with open(self.cache_file, "r", encoding="utf-8") as f:
-                cache = json.load(f)
-            expire_at = cache.get("expire_at")
-            if not expire_at:
-                return True
-            return datetime.fromisoformat(expire_at) <= datetime.now()
-        except Exception:
-            return True
 
 
 class ProxyManager:

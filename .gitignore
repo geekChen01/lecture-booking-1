@@ -9,3 +9,7 @@ __pycache__/
 *.pyo
 *.log
 .env
+0424account.txt
+results/
+
+l.md

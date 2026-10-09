@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import atexit
+import glob
 import json
 import logging
 import os
@@ -9,16 +10,16 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Tuple
 
 import requests
 
-from config1 import (
+from config import (
     BASE_DIR, LOG_DIR, CACHE_DIR, AUTH_DIR,
     SUMMARY_FILE,
     MITMDUMP_PATH, PROXY_ADDR, PROXY_PORT,
-    CHECK_INTERVAL, CACHE_EXPIRE_HOURS,
+    CHECK_INTERVAL,
     TARGET_KEYWORD, DEBUG_MODE,
 )
 from auth import ProxyManager
@@ -183,9 +184,6 @@ class TokenGrabber:
             "id_token": id_token,
             "userId": user_id,
             "captured_at": datetime.now().isoformat(),
-            "expire_at": (
-                datetime.now() + timedelta(hours=CACHE_EXPIRE_HOURS)
-            ).isoformat(),
             "raw_response": resp_data if DEBUG_MODE else None,
         }
 
@@ -238,7 +236,7 @@ class MitmdumpManager:
         self.log_fp = None
         self.proxy_manager = ProxyManager()
         self.original_proxy_state = self.proxy_manager.is_enabled()
-        self.log_file = log_file or MITMDUMP_STDOUT_LOG
+        self.log_file = log_file
 
     def _wait_port_release(self, timeout: int = 8) -> bool:
         for _ in range(timeout):
@@ -376,9 +374,9 @@ class MitmdumpManager:
                     logger.warning(f"健康检查失败 (第 {idx} 次): {e}")
                 time.sleep(1)
 
-            logger.error("健康检查最终失败")
-            self._dump_last_log(self.log_file)
-            return False
+            # 端口已被 mitmdump 监听即证明代理存活；mitm.it 不可达多为网络出口问题，不判定启动失败
+            logger.warning("健康检查未通过（mitm.it 不可达），代理端口已在监听，继续运行")
+            return True
 
         except Exception as e:
             logger.error(f"启动异常: {e}", exc_info=True)
@@ -468,6 +466,12 @@ def main():
             except Exception:
                 pass
 
+    for old_log in glob.glob(os.path.join(LOG_DIR, "mitmdump_*.log")):
+        try:
+            os.remove(old_log)
+        except Exception:
+            pass
+
     mitmdump_log_file = os.path.join(
         LOG_DIR,
         f"mitmdump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -514,7 +518,7 @@ def main():
                                 if len(parts) == 3:
                                     account, cache_file, token_preview = parts
                                     logger.info(
-                                        f"✅ 成功捕获 Token: 账号={account} | "
+                                        f"task-success-成功捕获 Token: 账号={account} | "
                                         f"文件={cache_file} | Token前20位={token_preview}..."
                                     )
                     except Exception as e:

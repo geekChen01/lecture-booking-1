@@ -20,6 +20,7 @@ class Colors:
     CYAN = "\033[96m"
     MAGENTA = "\033[95m"
     ORANGE = "\033[38;5;208m"
+    DARK_GRAY = "\033[90m"
     RESET = "\033[0m"
 
 
@@ -61,10 +62,12 @@ def print_lecture_table(title=None, chairs=None, category="available", custom_ti
     category_config = {
         "available": (Colors.GREEN, f"🟢 可报名讲座 ({count})"),
         "not_started": (Colors.YELLOW, f"🟡 未到时间 ({count})"),
-        "enrolled": (Colors.BLUE, f"🔵 已报名讲座 ({count})"),
-        "full": (Colors.RED, f"🔴 已满讲座 ({count})"),
-        "conflict": (Colors.ORANGE, f"🟠 时间冲突讲座 ({count})"),
-        "nanjing": (Colors.MAGENTA, f"🟣 南京校区讲座 ({count})"),
+        "full": (Colors.RED, f"� 已满讲座 ({count})"),
+        "conflict": (Colors.ORANGE, f"� 时间冲突讲座 ({count})"),
+        "nanjing": (Colors.MAGENTA, f"� 南京校区讲座 ({count})"),
+        "hefei": (Colors.CYAN, f"� 合肥校区讲座 ({count})"),
+        "ending_soon": (Colors.DARK_GRAY, f"⚫ 即将结束讲座 ({count})"),
+        "enrolled": (Colors.BLUE, f"✅ 已报名讲座 ({count})"),
     }
 
     base_color, default_title = category_config.get(category, (Colors.RESET, f"{category} ({count})"))
@@ -98,9 +101,12 @@ def print_all_categories(categorized_result: Dict[str, List[Dict]]):
     category_order = [
         ("not_started", "未到时间", "🟡"),
         ("available", "可报名", "🟢"),
-        ("full", "已满", "🔴"),
+        # ("full", "已满", "🔴"),
         ("conflict", "时间冲突", "🟠"),
-        ("nanjing", "南京校区", "🟣"),
+        # ("nanjing", "南京校区", "🟣"),
+        ("hefei", "合肥校区", "🔵"),
+        ("ending_soon", "即将结束", "⚫"),
+        ("enrolled", "已报名", "✅"),
     ]
 
     has_data = False

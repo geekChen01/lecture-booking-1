@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import random
 import re
 import threading
@@ -12,8 +11,8 @@ from typing import Dict, List, Optional, Tuple
 import requests
 import urllib3
 
-from config1 import (
-    FETCH_DELAY, BOOK_DELAY, LIST_CACHE_TTL, MAX_PAGES,
+from config import (
+    FETCH_DELAY, BOOK_DELAY, MAX_PAGES,
     REQUEST_TIMEOUT, MAX_RETRIES, RETRY_DELAY,
     CONCURRENT_SIGNUP_THREADS, API_BASE, AUTO_REFRESH,
 )
@@ -27,25 +26,12 @@ def _ms_str(ms: int) -> str:
 
 
 class LectureScanner:
-    def __init__(self, session: requests.Session, account_name: str, cache_dir: str):
+    def __init__(self, session: requests.Session, account_name: str):
         self.session = session
         self.account_name = account_name
-        self.cache_dir = cache_dir
-        self.list_cache_file = os.path.join(cache_dir, f"lecture_list_cache_{account_name}.json")
-        self.user_chairs_cache_file = os.path.join(cache_dir, f"user_chairs_cache_{account_name}.json")
 
     def fetch_future_chairs(self) -> Dict[str, List[Dict]]:
         now_ts = int(time.time() * 1000)
-
-        if os.path.exists(self.list_cache_file):
-            try:
-                with open(self.list_cache_file, "r", encoding="utf-8") as f:
-                    cache = json.load(f)
-                if now_ts - cache.get("ts", 0) < LIST_CACHE_TTL * 1000:
-                    logger.debug(f"⚡ 账号 [{self.account_name}] 命中列表缓存")
-                    return cache["data"]
-            except Exception:
-                pass
 
         available, full, not_started = [], [], []
         page = 1
@@ -99,28 +85,9 @@ class LectureScanner:
         not_started.sort(key=lambda x: x["applyBeginTime"])
         full.sort(key=lambda x: x["applyBeginTime"])
 
-        result = {"available": available, "full": full, "not_started": not_started}
-        try:
-            with open(self.list_cache_file, "w", encoding="utf-8") as f:
-                json.dump({"ts": now_ts, "data": result}, f)
-        except Exception:
-            pass
-        return result
+        return {"available": available, "full": full, "not_started": not_started}
 
     def fetch_user_chairs(self) -> List[Dict]:
-        USER_CHAIRS_CACHE_TTL = 5
-        now_ts = int(time.time() * 1000)
-
-        if os.path.exists(self.user_chairs_cache_file):
-            try:
-                with open(self.user_chairs_cache_file, "r", encoding="utf-8") as f:
-                    cache = json.load(f)
-                if now_ts - cache.get("ts", 0) < USER_CHAIRS_CACHE_TTL * 1000:
-                    logger.debug(f"⚡ 账号 [{self.account_name}] 命中已报名讲座缓存")
-                    return cache.get("data", [])
-            except Exception:
-                pass
-
         user_chairs = []
         page = 1
         total_pages = 1
@@ -146,20 +113,25 @@ class LectureScanner:
                     break
 
                 for item in records:
+                    begin_ms = item.get("chairBeginTime", 0)
+                    end_ms = item.get("chairEndTime", 0)
                     chair_info = {
+                        "title": item.get("chairName", ""),
+                        "time": _ms_str(begin_ms) if begin_ms else "",
+                        "endTime": _ms_str(end_ms) if end_ms else "",
+                        "teacher": item.get("teacherName", ""),
                         "chairId": item.get("chairId", ""),
-                        "chairName": item.get("chairName", ""),
-                        "chairBeginTime": item.get("chairBeginTime", 0),
-                        "chairEndTime": item.get("chairEndTime", 0),
-                        "teacherName": item.get("teacherName", ""),
-                        "applyBeginTime": item.get("applyBeginTime", 0),
-                        "applyEndTime": item.get("applyEndTime", 0),
-                        "leaveNum": item.get("leaveNum", 0),
-                        "totalNum": item.get("totalNum", 0),
-                        "chairAddress": item.get("chairAddress", ""),
-                        "chairContent": item.get("chairContent", ""),
-                        "status": item.get("status", 0),
+                        # 原始时间戳（程序内部用于冲突检测）
+                        "chairBeginTime": begin_ms,
+                        "chairEndTime": end_ms,
                     }
+                    # 只保留有值的可选字段
+                    addr = item.get("chairAddress", "")
+                    if addr:
+                        chair_info["address"] = addr
+                    content = item.get("chairContent", "")
+                    if content:
+                        chair_info["content"] = content
                     user_chairs.append(chair_info)
 
                 total_pages = data.get("data", {}).get("pages", 1)
@@ -176,12 +148,6 @@ class LectureScanner:
             except Exception as e:
                 logger.error(f"[{self.account_name}] 获取已报名讲座异常：{e}")
                 break
-
-        try:
-            with open(self.user_chairs_cache_file, "w", encoding="utf-8") as f:
-                json.dump({"ts": now_ts, "data": user_chairs}, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"[{self.account_name}] 保存已报名讲座缓存失败：{e}")
 
         if user_chairs:
             logger.info(f"✓ 账号 [{self.account_name}] 获取到 {len(user_chairs)} 个已报名讲座")
@@ -208,8 +174,10 @@ class LectureFilter:
             "enrolled": [],
             "conflict": [],
             "nanjing": [],
+            "hefei": [],
             "full": [],
             "not_started": [],
+            "ending_soon": [],
         }
 
         now_ts = int(time.time() * 1000)
@@ -243,13 +211,23 @@ class LectureFilter:
                     result["not_started"].append(chair_info)
                     continue
 
+                chair_start = int(datetime.strptime(chair["time"], "%Y-%m-%d %H:%M").timestamp() * 1000)
+                chair_end = chair_start + 90 * 60 * 1000
+
+                if now_ts > chair_end - 60 * 60 * 1000:
+                    chair_info["reason"] = "即将结束"
+                    result["ending_soon"].append(chair_info)
+                    continue
+
                 if chair["title"].startswith("南京"):
                     chair_info["reason"] = "含南京关键词"
                     result["nanjing"].append(chair_info)
                     continue
 
-                chair_start = int(datetime.strptime(chair["time"], "%Y-%m-%d %H:%M").timestamp() * 1000)
-                chair_end = chair_start + 90 * 60 * 1000
+                if chair["title"].startswith("合肥") or "合肥" in chair["title"]:
+                    chair_info["reason"] = "含合肥关键词"
+                    result["hefei"].append(chair_info)
+                    continue
 
                 if LectureFilter.check_time_conflict(chair_start, chair_end, enrolled_chairs):
                     chair_info["reason"] = "时间冲突"
@@ -325,7 +303,7 @@ class LectureSignup:
         logger.error(f"[{self.account_name}][{thread_id}] 请求失败（已重试 {max_retries} 次）: {last_exception}")
         return None
 
-    def apply_single(self, chair_id: str) -> bool:
+    def apply_single(self, chair_id: str) -> Tuple[bool, str]:
         try:
             time.sleep(random.uniform(*BOOK_DELAY))
 
@@ -337,7 +315,8 @@ class LectureSignup:
 
             if r is None:
                 logger.warning(f"[{self.account_name}] POST 报名失败，尝试 GET 确认...")
-                return self._verify_signup(chair_id)
+                verified = self._verify_signup(chair_id)
+                return verified, "请求失败" if not verified else ""
 
             code, msg = str(r.get("code", "")), r.get("msg", "")
 
@@ -349,15 +328,19 @@ class LectureSignup:
 
             success = code in ("00000", "200") or any(k in msg for k in ["重复", "已报名", "已存在"])
 
-            if (not success) and ("超时" not in msg and "失败" not in msg):
-                logger.info(f"[{self.account_name}] POST 结果不明确，尝试 GET 确认...")
-                return self._verify_signup(chair_id)
+            if success:
+                return True, ""
 
-            return success
+            if ("超时" not in msg and "失败" not in msg):
+                logger.info(f"[{self.account_name}] POST 结果不明确，尝试 GET 确认...")
+                verified = self._verify_signup(chair_id)
+                return verified, msg if not verified else ""
+
+            return False, msg
 
         except Exception as e:
             logger.debug(f"[{self.account_name}] 报名异常：{e}")
-            return False
+            return False, str(e)[:50]
 
     def _verify_signup(self, chair_id: str) -> bool:
         try:
@@ -370,7 +353,7 @@ class LectureSignup:
             return False
 
     def batch_signup(self, chairs: List[Dict], dry_run: bool = True, concurrent: bool = True) -> Dict:
-        res = {"success": [], "fail": []}
+        res = {"success": [], "fail": [], "fail_reasons": []}
 
         if dry_run:
             for item in chairs:
@@ -386,19 +369,21 @@ class LectureSignup:
             title = item["title"][:30]
             start_time = time.time()
 
-            if self.apply_single(item["chairId"]):
-                elapsed = time.time() - start_time
+            success, reason = self.apply_single(item["chairId"])
+            elapsed = time.time() - start_time
+
+            if success:
                 self._report_status(True, f"[{self.account_name}] {title}... 成功 ({elapsed:.1f}s)")
                 res["success"].append(item)
             else:
-                elapsed = time.time() - start_time
                 self._report_status(False, f"[{self.account_name}] {title}... 失败 ({elapsed:.1f}s)")
                 res["fail"].append(item)
+                res["fail_reasons"].append({"title": title, "reason": reason})
 
         return res
 
     def _batch_signup_concurrent(self, chairs: List[Dict]) -> Dict:
-        res = {"success": [], "fail": []}
+        res = {"success": [], "fail": [], "fail_reasons": []}
         semaphore = threading.Semaphore(CONCURRENT_SIGNUP_THREADS)
 
         total = len(chairs)
@@ -409,7 +394,7 @@ class LectureSignup:
         self._report(f"⚡ 并发抢票模式启动 ({CONCURRENT_SIGNUP_THREADS} 线程)")
         self._report(f"讲座总数: {total}")
 
-        def signup_task(item: Dict, index: int) -> Tuple[bool, float, str]:
+        def signup_task(item: Dict, index: int) -> Tuple[bool, float, str, str]:
             nonlocal completed
             thread_name = f"Worker-{index + 1}"
 
@@ -418,7 +403,7 @@ class LectureSignup:
                 start_time = time.time()
 
                 try:
-                    success = self.apply_single(item["chairId"])
+                    success, reason = self.apply_single(item["chairId"])
                     elapsed = time.time() - start_time
 
                     with completed_lock:
@@ -426,7 +411,7 @@ class LectureSignup:
                         progress = f"[{completed}/{total}]"
 
                     msg = f"[{thread_name}] {title} | {'成功' if success else '失败'} ({elapsed:.1f}s) {progress}"
-                    return success, elapsed, msg
+                    return success, elapsed, msg, reason
 
                 except Exception as e:
                     elapsed = time.time() - start_time
@@ -435,7 +420,7 @@ class LectureSignup:
                         progress = f"[{completed}/{total}]"
 
                     msg = f"[{thread_name}] {title} | 异常 ({elapsed:.1f}s) [{str(e)[:20]}] {progress}"
-                    return False, elapsed, msg
+                    return False, elapsed, msg, str(e)[:50]
 
         with ThreadPoolExecutor(
             max_workers=CONCURRENT_SIGNUP_THREADS,
@@ -449,15 +434,17 @@ class LectureSignup:
             for future in as_completed(futures):
                 item = futures[future]
                 try:
-                    success, elapsed, msg = future.result(timeout=30)
+                    success, elapsed, msg, reason = future.result(timeout=30)
                     self._report(msg)
                     if success:
                         res["success"].append(item)
                     else:
                         res["fail"].append(item)
+                        res["fail_reasons"].append({"title": item["title"][:30], "reason": reason})
                 except Exception as e:
                     self._report_status(False, f"超时/异常: {str(e)[:25]}")
                     res["fail"].append(item)
+                    res["fail_reasons"].append({"title": item["title"][:30], "reason": str(e)[:50]})
 
         total_elapsed = time.time() - start_all
         self._report(
