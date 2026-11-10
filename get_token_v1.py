@@ -20,7 +20,7 @@ from config import (
     SUMMARY_FILE,
     MITMDUMP_PATH, PROXY_ADDR, PROXY_PORT,
     CHECK_INTERVAL,
-    TARGET_KEYWORD, DEBUG_MODE,
+    TARGET_KEYWORD, DEBUG_MODE, APPLET_LAUNCH_URL,
 )
 from auth import ProxyManager
 
@@ -498,6 +498,12 @@ def main():
 
             logger.info("服务已就绪，现在可以打开微信小程序并触发登录接口")
             logger.info("Token 捕获日志请查看: %s", mitmdump_log_file)
+
+            try:
+                os.startfile(APPLET_LAUNCH_URL)
+                logger.info(f"已自动启动小程序: {APPLET_LAUNCH_URL}")
+            except Exception as e:
+                logger.warning(f"自动启动小程序失败（{e}），请手动打开桌面快捷方式")
 
             while True:
                 time.sleep(1)

@@ -10,6 +10,9 @@ import threading
 from typing import Dict, List, Optional
 from contextlib import redirect_stdout
 
+# 全局输出锁：capture_print 重定向 sys.stdout 期间，其他线程的 print 必须等待
+output_lock = threading.Lock()
+
 
 class Colors:
     """ANSI 颜色代码 (兼容 Win10+/Linux/macOS)"""
@@ -62,11 +65,10 @@ def print_lecture_table(title=None, chairs=None, category="available", custom_ti
     category_config = {
         "available": (Colors.GREEN, f"🟢 可报名讲座 ({count})"),
         "not_started": (Colors.YELLOW, f"🟡 未到时间 ({count})"),
-        "full": (Colors.RED, f"� 已满讲座 ({count})"),
-        "conflict": (Colors.ORANGE, f"� 时间冲突讲座 ({count})"),
-        "nanjing": (Colors.MAGENTA, f"� 南京校区讲座 ({count})"),
-        "hefei": (Colors.CYAN, f"� 合肥校区讲座 ({count})"),
-        "ending_soon": (Colors.DARK_GRAY, f"⚫ 即将结束讲座 ({count})"),
+        "full": (Colors.RED, f"🔴 已满讲座 ({count})"),
+        "conflict": (Colors.ORANGE, f"🟠 时间冲突讲座 ({count})"),
+        "nanjing": (Colors.MAGENTA, f"🟣 南京校区讲座 ({count})"),
+        "hefei": (Colors.CYAN, f"🔵 合肥校区讲座 ({count})"),
         "enrolled": (Colors.BLUE, f"✅ 已报名讲座 ({count})"),
     }
 
@@ -80,19 +82,19 @@ def print_lecture_table(title=None, chairs=None, category="available", custom_ti
         print(c("   (无数据)", Colors.BLUE))
         return
 
-    header = f"{'序号':<3}|   {'报名时间':<12} |{'剩余':>3} | {'讲座时间':<15} | {'标题':<30} | {'主讲人'}"
+    header = f"{'序号':<3}|   {'报名时间':<12} |{'剩余':>3} | {'讲座时间':<15} | {'地点':<20} | {'标题':<28} | {'主讲人'}"
     print(c(header, Colors.CYAN))
-    print("-" * 75)
+    print("-" * 95)
 
-    row_fmt = "{:<5}|   {:<13} | {:>4} | {:<19} | {:<30} | {:<10}"
+    row_fmt = "{:<5}|   {:<13} | {:>4} | {:<19} | {:<20} | {:<28} | {:<10}"
     for i, item in enumerate(chairs, 1):
-        title_text = truncate(item["title"], 30)
+        title_text = truncate(item["title"], 28)
         row = row_fmt.format(
             i, item["applyBeginTime"], item["leave"],
-            item["time"], title_text, item["teacher"]
+            item["time"], item.get("address") or "-", title_text, item["teacher"]
         )
         print(c(row, base_color))
-    print(f"{'=' * 75}\n")
+    print(f"{'=' * 95}\n")
 
 
 def print_all_categories(categorized_result: Dict[str, List[Dict]]):
@@ -104,8 +106,7 @@ def print_all_categories(categorized_result: Dict[str, List[Dict]]):
         # ("full", "已满", "🔴"),
         ("conflict", "时间冲突", "🟠"),
         # ("nanjing", "南京校区", "🟣"),
-        ("hefei", "合肥校区", "🔵"),
-        ("ending_soon", "即将结束", "⚫"),
+        # ("hefei", "合肥校区", "🔵"),   # 屏蔽校区不整表输出，过滤统计行里有数量
         ("enrolled", "已报名", "✅"),
     ]
 
@@ -123,13 +124,6 @@ def print_all_categories(categorized_result: Dict[str, List[Dict]]):
         print(f"\n{'=' * 75}")
         print(c("   (无数据)", Colors.BLUE))
         print(f"{'=' * 75}\n")
-
-
-def print_status(success: bool, msg: str):
-    enable_win_colors()
-    prefix = c("✅", Colors.GREEN) if success else c("❌", Colors.RED)
-    color = Colors.GREEN if success else Colors.RED
-    print(f"{prefix} {c(msg, color)}")
 
 
 class AccountOutputBuffer:
@@ -150,7 +144,9 @@ class AccountOutputBuffer:
 
     def capture_print(self, func, *args, **kwargs):
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        # redirect_stdout 是全局替换：多账号并发时必须持锁，否则主线程的
+        # print 会落进某个工作线程的 StringIO 里凭空消失
+        with output_lock, redirect_stdout(buf):
             func(*args, **kwargs)
         content = buf.getvalue().rstrip()
         if content:

@@ -2,14 +2,14 @@ import ctypes
 import json
 import logging
 import os
-import time
+import threading
 import winreg
 from datetime import datetime
 from typing import Dict
 
 import requests
 
-from config import AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT
+from config import AUTO_REFRESH, PERSONNEL_LOGIN_URL, API_BASE, PROXY_ADDR, PROXY_PORT, REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,7 @@ class TokenManager:
         self.account_name = account_name
         self.cache_file = os.path.join(auth_dir, f"auth_cache_{account_name}.json")
         self.session = session
+        self._refresh_lock = threading.Lock()
 
     def load(self) -> Dict:
         if not os.path.exists(self.cache_file):
@@ -61,25 +62,35 @@ class TokenManager:
             resp = self.session.get(
                 f"{API_BASE}/pageChair.do",
                 params={"size": 1, "current": 1},
-                timeout=5
+                timeout=REQUEST_TIMEOUT
             )
             return resp.status_code == 200 and str(resp.json().get("code")) == "00000"
         except Exception:
             return False
 
-    def refresh_token(self, id_token: str) -> bool:
-        logger.info(f"[{self.account_name}] 用 id_token 刷新 chair-token...")
-        try:
-            resp = self.session.post(PERSONNEL_LOGIN_URL, data={"accessToken": id_token}, timeout=10)
-            resp.raise_for_status()
-            new_token = resp.cookies.get("chair-personnel-token") or resp.json().get("data", {}).get("token")
-            if new_token:
-                self.session.cookies.set("chair-personnel-token", new_token)
-                self.save(new_token, id_token)
-                return True
-        except Exception as e:
-            logger.error(f"[{self.account_name}] 刷新失败：{e}")
-        return False
+    def refresh_token(self, id_token: str, stale_token: str = None) -> bool:
+        """单飞刷新：并发调用时第一个线程真正刷新，其余线程直接复用刷新结果。"""
+        with self._refresh_lock:
+            if stale_token is not None:
+                cached = self.load().get("chair_token")
+                if cached and cached != stale_token:
+                    # 别的线程已刷新出更新的 token，直接复用
+                    self.session.cookies.set("chair-personnel-token", cached)
+                    logger.info(f"[{self.account_name}] 复用其他线程刷新的 chair-token")
+                    return True
+
+            logger.info(f"[{self.account_name}] 用 id_token 刷新 chair-token...")
+            try:
+                resp = self.session.post(PERSONNEL_LOGIN_URL, data={"accessToken": id_token}, timeout=REQUEST_TIMEOUT)
+                resp.raise_for_status()
+                new_token = resp.cookies.get("chair-personnel-token") or resp.json().get("data", {}).get("token")
+                if new_token:
+                    self.session.cookies.set("chair-personnel-token", new_token)
+                    self.save(new_token, id_token)
+                    return True
+            except Exception as e:
+                logger.error(f"[{self.account_name}] 刷新失败：{e}")
+            return False
 
     def try_fallback_chair_token(self, fallback: str) -> bool:
         if not fallback or len(fallback) <= 20:
@@ -91,10 +102,14 @@ class TokenManager:
         return False
 
     def ensure_auth(self, fallback: str) -> bool:
+        """乐观认证：有缓存 chair_token 直接使用（省一次预检往返）；
+        token 已过期时由扫描/报名路径的 401/403 处理触发刷新。"""
         cache = self.load()
 
-        if cache.get("chair_token") and self.validate_token(cache["chair_token"]):
-            logger.debug(f"[{self.account_name}] 使用有效 chair-token")
+        chair_token = cache.get("chair_token")
+        if chair_token:
+            self.session.cookies.set("chair-personnel-token", chair_token)
+            logger.debug(f"[{self.account_name}] 使用缓存 chair-token（乐观）")
             return True
 
         id_tok = cache.get("id_token") or fallback
